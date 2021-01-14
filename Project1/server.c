@@ -160,6 +160,10 @@ int main()
  넌 이거 api 컴파일 해결하면 될듯
  1. client.c 먼저 만들어주셈 만듬
  2. 그리고 api 컴파일 해결해주셈 api부분 다지운거 아님?
+주석 처리만 함
+그런 TMI 는 생략해주시고 일단 client.c 따로 만들어서 보내주셈 뭘 보내야됨?
+ 만들기만 하면
+여기서 만들면 더 좋고 근데 컴파일 괜찮음?
  3. 개발 ㄱ 딴프로젝트 파일에서 하고있음
   혹시 네이버나 다음 사전 긁어오는게 빠를려나 해서 뫘는데 나오는 xml이 너무 길어서 처리하기 힘들듯
     LoadDataFromWebPage("stdict.korean.go.kr", "/api/search.do?certkey_no=2201&key=77CF6E24D5171B35E3614C01BE677683&type_search=search&q=단어", &buffer);
@@ -185,9 +189,9 @@ DWORD WINAPI makeThread(void* data) {
                 if (!playerList[i].conn) continue;
                 if (playerList[i].conn == socket) continue;
                 int sendBytes = send(playerList[i].conn, messageBuffer, strlen(messageBuffer), 0);
-                if (sendBytes > 0) {
-                    printf("TRACE - Send message : %s (%d bytes)\n", messageBuffer, sendBytes);
-                }
+            if (sendBytes > 0) {
+                printf("TRACE - Send message : %s (%d bytes)\n", messageBuffer, sendBytes);
+            }
             }
         }
         else {
