@@ -1,16 +1,21 @@
-﻿#include "stdio.h"
+#include "stdio.h"
 #include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <malloc.h>
 #include <winsock2.h>
-//#include <Windows.h>
-//#include <wininet.h>  
+#include <Windows.h>
+#include <wininet.h>
 
 #define BUFSIZE 1024
 #pragma comment (lib, "ws2_32")
-//#pragma comment (lib, "wininet.lib")
-//#pragma comment (lib, "./ew32.lib")
+#pragma comment (lib, "wininet.lib")
+#pragma comment (lib, "./ew32.lib")
 
 DWORD WINAPI makeThread(void* data);
-/*
+DWORD WINAPI makeSevThread(void* data);
+
+// gcc server.c -lws2_32 -lwininet
 
 int Utf8ToAscii(char** dest, char* src)
 {
@@ -58,7 +63,6 @@ DWORD ReadHtmlText(HINTERNET ah_http_file, char* ap_html_string)
     return total_bytes;
 }
 
-
 void LoadDataFromWebPage(const char* domain, const char* path, char** rslt)
 {
     HINTERNET h_session = InternetOpenA("BlogScanner", PRE_CONFIG_INTERNET_ACCESS, NULL, INTERNET_INVALID_PORT_NUMBER, 0);
@@ -81,23 +85,106 @@ void LoadDataFromWebPage(const char* domain, const char* path, char** rslt)
     if (h_connect != NULL) InternetCloseHandle(h_connect);
     if (h_session != NULL) InternetCloseHandle(h_session);
 }
-*/
 
-struct Player {
+int wordcheck(char* word) {
+    char url[49] = "/api/v2/entries/en/";
+    char* buffer = NULL;
+    strcat(url, word);
+    LoadDataFromWebPage("api.dictionaryapi.dev", url, &buffer);
+    if (buffer) {
+        if (strchr(buffer, 'D')) {//단어가 유효하지 않을시 0반환 
+            free(buffer);
+            return 0;
+        }
+        else {//단어 유효시 1반환  
+            free(buffer);
+            return 1;
+        }
+    }
+    else {//API오류시 -1반환 
+        free(buffer);
+        return -1;
+    }
+    return -2;
+}
+
+char* wordrandom() {
+    char* buffer = NULL; int i, j; char* word = NULL;
+    LoadDataFromWebPage("random-word-api.herokuapp.com", "/word?number=1", &buffer);
+    int length = strlen(buffer);
+    for (i = 0; i < (length - 2); i++) {
+        buffer[i] = buffer[i + 2];
+    }
+    buffer[length - 4] = '\0';
+    word = buffer;
+    free(buffer);
+    return word;
+}
+
+typedef struct Player {
     SOCKET conn;
-    char name[20];
-};
+    char name[1024];
+    int life;
+} player;
 
-struct Player playerList[100];
+typedef struct Node {
+    player* p;
+    struct Node* next;
+} node;
+
+node* head = NULL;
+node* tail = NULL;
+
+node* insertNode(player* p) {
+    if (head == NULL) {
+        head = (node*)malloc(sizeof(node));
+        head->p = p;
+        head->next = NULL;
+        tail = head;
+    } else {
+        node* n = (node*)malloc(sizeof(node));
+        tail->next = n;
+        n->p = p;
+        n->next = NULL;
+        tail = n;
+    }
+}
+
+void deleteNode(node* n) {
+    node* index = head;
+    if (index->next == NULL) {
+        index = NULL;
+        free(n);
+        return;
+    }
+    while (index->next != n) {
+        index = index->next;
+    }
+    index->next = n->next;
+    free(n);
+}
+
+char wordList[100000][1024] = { 0 };
+int wordCount = 0;
+
+int isOverlap(char* c) {
+    for (int i = 0; i < wordCount; i++) {
+        //printf("%s %s\n", wordList[i], c);
+        if (!strcmp(wordList[i],c)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+node* currentNode;
+player* selectPlayer;
 int playerCount = 0;
+int isPlaying = 0;
 
 int main()
 {
-    
-    system("chcp 65001"); // 코드페이지를 UTF-8로 변경.
-    system("cls");
-
-    WSADATA wsaData; // 야 이거 오류 난 부분 설명 좀 해주셈 그러니까 그 오류난 위치 좀
+    WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         printf("Error - Cannot load 'winsock.dll' file\n");
         return 1;
@@ -133,71 +220,223 @@ int main()
     SOCKADDR_IN clientAddr;
     int addrLen = sizeof(SOCKADDR_IN);
     memset(&clientAddr, 0, addrLen);
-    SOCKET clientSocket;
 
-    HANDLE hThread;
+    HANDLE hThread = CreateThread(NULL, 0, makeSevThread, NULL, 0, NULL);
+    CloseHandle(hThread);
 
     while (1) {
-        clientSocket = playerList[playerCount++].conn = accept(listenSocket, (struct sockaddr*)&clientAddr, &addrLen);
-        hThread = CreateThread(NULL, 0, makeThread, (void*)clientSocket, 0, NULL);
-        CloseHandle(hThread);
+        player *p = (player*)malloc(sizeof(player));
+        p->conn = accept(listenSocket, (struct sockaddr*)&clientAddr, &addrLen);
+        if (isPlaying) {
+            char message[] = "already playing...";
+            send(p->conn, message, strlen(message), NULL);
+            closesocket(p->conn);
+        }
+        else {
+            hThread = CreateThread(NULL, 0, makeThread, (void*)insertNode(p), 0, NULL);
+            CloseHandle(hThread);
+            playerCount++;
+            printf("%d\n", playerCount);
+        }
     }
 
     closesocket(listenSocket);
 
     WSACleanup();
-//////////////////////////////////////////////////////
-/*
-    char* buffer = NULL;
-    char word[20]={0};
-   printf("단어를 입력하세요 : ");
-    gets(word);
-*/
-
-/* client.c 만들어서 확인해야 함 일단 서버 컴파일은 gcc server.c -lws2_32
- 이제 클라이언트 만들어서 접속이 되는지를 확인해야 함
- 여기서 대충 만들어서 github 링크에다가 올리면 내가 그거 받아가지고 돌려볼게
- 넌 이거 api 컴파일 해결하면 될듯
- 1. client.c 먼저 만들어주셈 만듬
- 2. 그리고 api 컴파일 해결해주셈 api부분 다지운거 아님?
-주석 처리만 함
-그런 TMI 는 생략해주시고 일단 client.c 따로 만들어서 보내주셈 뭘 보내야됨?
- 만들기만 하면
-여기서 만들면 더 좋고 근데 컴파일 괜찮음?
- 3. 개발 ㄱ 딴프로젝트 파일에서 하고있음
-  혹시 네이버나 다음 사전 긁어오는게 빠를려나 해서 뫘는데 나오는 xml이 너무 길어서 처리하기 힘들듯
-    LoadDataFromWebPage("stdict.korean.go.kr", "/api/search.do?certkey_no=2201&key=77CF6E24D5171B35E3614C01BE677683&type_search=search&q=단어", &buffer);
-    if (buffer) {
-        puts(buffer);
-        free(buffer);
-    }
-    else {
-        puts("Error");
-    }*/
 }
 
 DWORD WINAPI makeThread(void* data) {
-    SOCKET socket = (SOCKET)data;
+    node* n = (node*)data;
+    player* p = n->p;
+    SOCKET socket = p->conn;
+
+    printf("Connect Someone\n");
+    //printf("%d\n", &socket);
+
+    strcpy(p->name, "emtpy");
 
     char messageBuffer[BUFSIZE];
     int receiveBytes;
+    int first = 1;
     while (receiveBytes = recv(socket, messageBuffer, BUFSIZE, 0)) {
         if (receiveBytes > 0) {
-            printf("TRACE - Receive message : %s (%d bytes)\n", messageBuffer, receiveBytes);
+            if (first) {
+                first = 0;
+                strcpy(p->name,messageBuffer);
+                char message[] = "";
+                strcat(message,"your name is ");
+                strcat(message, p->name);
+                send(socket, message, strlen(message), 0);
+                printf("Someone change name : %s\n", (*p).name);
+            } else if (isPlaying) {
+                char message[1024] = "";
 
-            for (int i=0;i<playerCount;i++){
-                if (!playerList[i].conn) continue;
-                if (playerList[i].conn == socket) continue;
-                int sendBytes = send(playerList[i].conn, messageBuffer, strlen(messageBuffer), 0);
-            if (sendBytes > 0) {
-                printf("TRACE - Send message : %s (%d bytes)\n", messageBuffer, sendBytes);
-            }
+                printf("TRACE - Receive message : %s (%d bytes)\n", messageBuffer, receiveBytes);
+
+                if (selectPlayer == p) {
+                    char* currentWord = wordList[wordCount - 1];
+                    printf("%d\n", wordCount);
+
+                    printf("%s %d %c\n", currentWord, strlen(currentWord), currentWord[strlen(currentWord) - 1]);
+                    if (currentWord[strlen(currentWord) - 1] != messageBuffer[0]) {
+                        strcpy(message,"Sorry, but you should input a word starting with the last letter of the last word.");
+                        p->life--;
+                    } else if (wordcheck(messageBuffer)<1) {
+                        strcpy(message,"Sorry, but there is no such word in the api.");
+                        p->life--;
+                    } else if (isOverlap(messageBuffer)) {
+                        strcpy(message, "Sorry, but this word is already using.");
+                        p->life--;
+                    } else {
+                        strcpy(message,"Great!");
+                        strcpy(wordList[wordCount++],messageBuffer);
+                        currentNode = currentNode->next;
+                        if (currentNode == NULL) {
+                            currentNode = head;
+                        }
+                        selectPlayer = currentNode->p;
+                    }
+                } else {
+                    //strcpy(message,"Sorry, it`s not your turn.");
+                }
+                node* index = head;
+                while (index != NULL) {
+                    player* other = index->p;
+                    if ((*other).conn && other != p) {
+                        char message[1024] = "";
+                        strcat(message, p->name);
+                        strcat(message, ": ");
+                        strcat(message, messageBuffer);
+                        int sendBytes = send(other->conn, message, strlen(message), 0);
+
+                        if (sendBytes > 0) {
+                            printf("TRACE - Send message : %s (%d bytes)\n", message, sendBytes);
+                        }
+                    }
+                    index = index->next;
+                }
+
+                if (p->life <= 0) {
+                    isPlaying = 0;
+                    node* index = head;
+                    while (index != NULL) {
+                        player* other = index->p;
+                        if ((*other).conn) {
+                            char message[1024] = "";
+                            strcat(message, p->name);
+                            strcat(message, " is dead.. game over");
+                            int sendBytes = send(other->conn, message, strlen(message), 0);
+
+                            if (sendBytes > 0) {
+                                printf("TRACE - Send message : %s (%d bytes)\n", message, sendBytes);
+                            }
+                        }
+                        index = index->next;
+                    }
+                }
+
+                if (selectPlayer != p) {
+                    send(selectPlayer->conn, "your turn.", strlen("your turn."), 0);
+                }
+                printf("%s\n", message);
+                send(p->conn, message, strlen(message), 0);
+            } else {
+                printf("TRACE - Receive message : %s (%d bytes)\n", messageBuffer, receiveBytes);
+
+                node* index = head;
+                while (index != NULL) {
+                    player* other = index->p;
+                    if ((*other).conn && other != p) {
+                        char message[1024] = "";
+                        strcat(message, p->name);
+                        strcat(message, ": ");
+                        strcat(message, messageBuffer);
+                        int sendBytes = send(other->conn, message, strlen(message), 0);
+
+                        if (sendBytes > 0) {
+                            printf("TRACE - Send message : %s (%d bytes)\n", message, sendBytes);
+                        }
+                    }
+                    index = index->next;
+                }
             }
         }
         else {
             break;
         }
     }
+    printf("%s LEAVE\n", (*p).name);
     closesocket(socket);
+    deleteNode(n);
+    free(p);
+    playerCount--;
+    printf("%d\n", playerCount);
+    return 0;
+}
+
+DWORD WINAPI makeSevThread(void* data) {
+    srand((unsigned int)time(NULL));
+    char command = 0;
+    while (scanf("%c",&command) != EOF) {
+        switch (command) {
+        case 's':
+            if (isPlaying) continue;
+            if (playerCount < 2) continue;
+            int playerIndex = rand() % playerCount;
+
+            strcpy(wordList[0],wordrandom());
+            wordCount = 1;
+
+            printf("%s\n", wordList[wordCount - 1]);
+
+            currentNode = head;
+            for (int i = 0; i < playerIndex; i++) {
+                currentNode = currentNode->next;
+                if (currentNode == NULL) {
+                    currentNode = head;
+                }
+            }
+            selectPlayer = currentNode->p;
+
+            node* index = head;
+            while (index != NULL) {
+                player* other = index->p;
+
+                if (other->conn) {
+                    char message[1024] = "";
+                    strcat(message, "Game is Started. Prompt is '");
+                    strcat(message, wordList[wordCount - 1]);
+                    strcat(message, "'. ");
+                    strcat(message, selectPlayer->name);
+                    strcat(message, ", start word relay.");
+
+                    send(other->conn, message, strlen(message), 0);
+                    
+                    other->life = 5;
+                }
+
+                index = index->next;
+            }
+            isPlaying = 1;
+
+            break;
+        case 'e':
+            isPlaying = 0;
+            node* i = head;
+            while (i != NULL) {
+                player* other = i->p;
+                if ((*other).conn) {
+                    char message[1024] = "Game End of server";
+                    int sendBytes = send(other->conn, message, strlen(message), 0);
+
+                    if (sendBytes > 0) {
+                        printf("TRACE - Send message : %s (%d bytes)\n", message, sendBytes);
+                    }
+                }
+                i = i->next;
+            }
+            break;
+        }
+    }
     return 0;
 }
